@@ -30,7 +30,7 @@ export const writeMarkdownSummary = (outputDir: string, operations: OperationSha
     lines.push("No dependencies found.");
   } else {
     for (const dep of dependencies) {
-      lines.push(`- ${dep.fromOperation} -> ${dep.toOperation} [${dep.kind}] ${dep.field}:${dep.type}`);
+      lines.push(`- ${dep.fromOperation} -> ${dep.toOperation} [${dep.kind}] ${dep.field}:${dep.type} (${dep.reason})`);
     }
   }
   lines.push("");

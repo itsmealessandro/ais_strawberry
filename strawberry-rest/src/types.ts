@@ -60,6 +60,7 @@ export type FieldShape = {
   name: string;
   type: string;
   format?: string;
+  entity?: string;
 };
 
 export type OperationShape = {
@@ -78,4 +79,5 @@ export type Dependency = {
   field: string;
   type: string;
   kind: "body" | "path" | "auth";
+  reason: "exact-name" | "entity-id" | "auth";
 };

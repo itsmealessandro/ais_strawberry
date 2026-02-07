@@ -2,6 +2,22 @@ import type { Dependency, OperationShape } from "./types.js";
 
 const normalizeField = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+const splitTokens = (name: string) =>
+  name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+
+const inferEntityFromField = (fieldName: string) => {
+  const tokens = splitTokens(fieldName);
+  const idIndex = tokens.findIndex((token) => token === "id");
+  if (idIndex > 0) {
+    return tokens[idIndex - 1];
+  }
+  return undefined;
+};
+
 const matchFields = (source: OperationShape, target: OperationShape) => {
   const dependencies: Dependency[] = [];
   const sourceFields = source.responseFields.map((field) => ({
@@ -23,9 +39,30 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
           toOperation: target.id,
           field: targetField.field.name,
           type: targetField.type,
-          kind: "body"
+          kind: "body",
+          reason: "exact-name"
         });
       }
+    }
+  }
+
+  for (const targetField of target.requestFields) {
+    const targetEntity = inferEntityFromField(targetField.name);
+    if (!targetEntity) {
+      continue;
+    }
+    const entityMatch = source.responseFields.find((field) =>
+      field.name === "id" && field.entity?.toLowerCase() === targetEntity
+    );
+    if (entityMatch && entityMatch.type === targetField.type) {
+      dependencies.push({
+        fromOperation: source.id,
+        toOperation: target.id,
+        field: targetField.name,
+        type: targetField.type,
+        kind: "body",
+        reason: "entity-id"
+      });
     }
   }
 
@@ -38,7 +75,24 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
         toOperation: target.id,
         field: pathParam.name,
         type: pathParam.type,
-        kind: "path"
+        kind: "path",
+        reason: "exact-name"
+      });
+      continue;
+    }
+
+    const entity = inferEntityFromField(pathParam.name);
+    const entityMatch = source.responseFields.find((field) =>
+      field.name === "id" && field.entity?.toLowerCase() === entity
+    );
+    if (entityMatch && entityMatch.type === pathParam.type) {
+      dependencies.push({
+        fromOperation: source.id,
+        toOperation: target.id,
+        field: pathParam.name,
+        type: pathParam.type,
+        kind: "path",
+        reason: "entity-id"
       });
     }
   }
@@ -72,7 +126,8 @@ export const extractDependencies = (operations: OperationShape[]) => {
         toOperation: consumer.id,
         field: "Authorization",
         type: "string",
-        kind: "auth"
+        kind: "auth",
+        reason: "auth"
       });
     }
   }

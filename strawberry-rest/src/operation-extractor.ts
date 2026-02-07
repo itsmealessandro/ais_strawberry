@@ -27,6 +27,14 @@ const pickSuccessResponse = (responses?: Record<string, ResponseObject>) => {
   return responses[successKey];
 };
 
+const extractSchemaName = (schema?: { $ref?: string }) => {
+  if (!schema?.$ref) {
+    return undefined;
+  }
+  const parts = schema.$ref.split("/");
+  return parts[parts.length - 1];
+};
+
 const extractPathParams = (parameters: OperationObject["parameters"]) => {
   if (!parameters) {
     return [] as FieldShape[];
@@ -42,7 +50,8 @@ const extractPathParams = (parameters: OperationObject["parameters"]) => {
 
 const extractRequestFields = (spec: OpenApiSpec, operation: OperationObject) => {
   const schema = pickJsonSchema(operation.requestBody);
-  return flattenSchema(spec, schema);
+  const entity = extractSchemaName(schema);
+  return flattenSchema(spec, schema).map((field) => ({ ...field, entity }));
 };
 
 const extractResponseFields = (spec: OpenApiSpec, operation: OperationObject) => {
@@ -51,7 +60,8 @@ const extractResponseFields = (spec: OpenApiSpec, operation: OperationObject) =>
     return [] as FieldShape[];
   }
   const schema = response.content["application/json"]?.schema ?? Object.values(response.content)[0]?.schema;
-  return flattenSchema(spec, schema);
+  const entity = extractSchemaName(schema);
+  return flattenSchema(spec, schema).map((field) => ({ ...field, entity }));
 };
 
 const hasBearerAuth = (operation: OperationObject) => {
