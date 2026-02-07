@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
+    "dev": "tsx src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },
@@ -22,7 +22,7 @@
     "@types/express": "4.17.21",
     "@types/jsonwebtoken": "9.0.6",
     "@types/node": "22.5.5",
-    "nodemon": "3.0.3",
+    "tsx": "4.21.0",
     "ts-node": "10.9.2",
     "typescript": "5.6.3"
   }

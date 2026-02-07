@@ -5,9 +5,10 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "node --loader ts-node/esm src/index.ts",
+    "dev": "tsx src/index.ts",
     "build": "tsc",
-    "analyze": "node --loader ts-node/esm src/index.ts"
+    "analyze": "tsx src/index.ts",
+    "validate": "tsx src/validate.ts"
   },
   "dependencies": {
     "yaml": "2.6.1",
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/node": "22.5.5",
     "@types/yargs": "17.0.32",
+    "tsx": "4.21.0",
     "ts-node": "10.9.2",
     "typescript": "5.6.3"
   }
