@@ -5,9 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node src/index.ts",
+    "dev": "node --loader ts-node/esm src/index.ts",
     "build": "tsc",
-    "analyze": "ts-node src/index.ts"
+    "analyze": "node --loader ts-node/esm src/index.ts"
   },
   "dependencies": {
     "yaml": "2.6.1",
