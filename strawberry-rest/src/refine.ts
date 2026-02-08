@@ -4,7 +4,7 @@ import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
 import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
-import { writeJsonReport, writeMarkdownSummary } from "./report-writer.js";
+import { writeJsonReport, writeMarkdownSummary, writeRefinementDiff } from "./report-writer.js";
 import { requestJson } from "./http-client.js";
 import type { Dependency, OperationShape } from "./types.js";
 
@@ -334,11 +334,21 @@ const run = async () => {
     )
   }));
 
-  writeJsonReport(argv.out, { operations, dependencies: refined });
+  const changes = refined.map((dependency) => {
+    const before = "unverified" as const;
+    const after = dependency.verification ?? "unverified";
+    return { dependency, before, after };
+  });
+
+  writeJsonReport(argv.out, { operations, dependencies: refined, refinementChanges: changes });
   writeMarkdownSummary(argv.out, operations, refined);
+  writeRefinementDiff(argv.out, refined, changes);
 
   const verified = refined.filter((dep) => dep.verification === "verified").length;
+  const changed = changes.filter((item) => item.before !== item.after).length;
   console.log(`Verified ${verified}/${refined.length} dependencies.`);
+  console.log(`Changed ${changed}/${changes.length} dependencies after refinement.`);
+  console.log(`Refinement diff written to ${argv.out}/refinement-diff.md`);
 };
 
 run().catch((error: unknown) => {
