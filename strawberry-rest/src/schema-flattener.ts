@@ -51,11 +51,42 @@ const flattenObject = (schema: SchemaObject, prefix: string): FieldShape[] => {
   return fields;
 };
 
+// Add discriminator property when declared and missing.
+const addDiscriminatorField = (schema: SchemaObject, fields: FieldShape[]) => {
+  const discriminator = schema.discriminator?.propertyName;
+  if (!discriminator) {
+    return fields;
+  }
+  if (fields.some((field) => field.name === discriminator)) {
+    return fields;
+  }
+  return [{ name: discriminator, type: "string" }, ...fields];
+};
+
+// Flatten union schemas (oneOf/anyOf) into a merged field list.
+const flattenUnion = (spec: OpenApiSpec, schema: SchemaObject): FieldShape[] => {
+  const variants = schema.oneOf ?? schema.anyOf ?? [];
+  const fieldMap = new Map<string, FieldShape>();
+  for (const variant of variants) {
+    const flattened = flattenSchema(spec, variant);
+    for (const field of flattened) {
+      if (!fieldMap.has(field.name)) {
+        fieldMap.set(field.name, field);
+      }
+    }
+  }
+  const fields = Array.from(fieldMap.values());
+  return addDiscriminatorField(schema, fields);
+};
+
 // Flatten any schema into a list of FieldShape entries.
 export const flattenSchema = (spec: OpenApiSpec, schema?: SchemaObject): FieldShape[] => {
   const resolved = resolveSchema(spec, schema);
+  if (resolved.oneOf || resolved.anyOf) {
+    return flattenUnion(spec, resolved);
+  }
   if (resolved.type === "object") {
-    return flattenObject(resolved, "");
+    return addDiscriminatorField(resolved, flattenObject(resolved, ""));
   }
   if (resolved.type === "array" && resolved.items) {
     return [{ name: "[]", type: "array", format: resolved.items.type }];
