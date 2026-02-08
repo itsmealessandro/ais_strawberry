@@ -4,7 +4,7 @@ import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
 import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
-import { writeJsonReport, writeMarkdownSummary, writeRefinementDiff } from "./report-writer.js";
+import { writeAnalysisReport, writeJsonReport, writeMarkdownSummary, writeRefinementDiff } from "./report-writer.js";
 import { requestJson } from "./http-client.js";
 import type { Dependency, OperationShape } from "./types.js";
 
@@ -343,6 +343,11 @@ const run = async () => {
   writeJsonReport(argv.out, { operations, dependencies: refined, refinementChanges: changes });
   writeMarkdownSummary(argv.out, operations, refined);
   writeRefinementDiff(argv.out, refined, changes);
+  writeAnalysisReport(argv.out, {
+    specPath: argv.spec,
+    operations,
+    dependencies: refined
+  });
 
   const verified = refined.filter((dep) => dep.verification === "verified").length;
   const changed = changes.filter((item) => item.before !== item.after).length;

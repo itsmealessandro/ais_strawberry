@@ -4,7 +4,7 @@ import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
 import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
-import { writeJsonReport, writeMarkdownSummary } from "./report-writer.js";
+import { writeAnalysisReport, writeJsonReport, writeMarkdownSummary } from "./report-writer.js";
 
 // Parse CLI arguments for spec path and output directory.
 const argv = yargs(hideBin(process.argv))
@@ -31,6 +31,11 @@ const dependencies = extractDependencies(operations);
 // Emit JSON and Markdown reports.
 writeJsonReport(outputDir, { operations, dependencies });
 writeMarkdownSummary(outputDir, operations, dependencies);
+writeAnalysisReport(outputDir, {
+  specPath,
+  operations,
+  dependencies
+});
 
 console.log(`Extracted ${operations.length} operations and ${dependencies.length} dependencies.`);
 console.log(`Reports written to ${outputDir}`);

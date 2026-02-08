@@ -16,6 +16,78 @@ export const writeJsonReport = (outputDir: string, data: unknown) => {
   fs.writeFileSync(path.join(outputDir, "dependencies.json"), JSON.stringify(data, null, 2));
 };
 
+export const writeAnalysisReport = (
+  outputDir: string,
+  meta: {
+    specPath: string;
+    operations: OperationShape[];
+    dependencies: Dependency[];
+  }
+) => {
+  ensureDir(outputDir);
+  const operationsCount = meta.operations.length;
+  const dependenciesCount = meta.dependencies.length;
+  const byKind = meta.dependencies.reduce<Record<string, number>>((acc, dep) => {
+    acc[dep.kind] = (acc[dep.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+  const byReason = meta.dependencies.reduce<Record<string, number>>((acc, dep) => {
+    acc[dep.reason] = (acc[dep.reason] ?? 0) + 1;
+    return acc;
+  }, {});
+  const verified = meta.dependencies.filter((dep) => dep.verification === "verified").length;
+  const unverified = meta.dependencies.filter((dep) => dep.verification === "unverified").length;
+  const lines: string[] = [];
+  lines.push("# StrawBerry-REST Analysis Report");
+  lines.push("");
+  lines.push("## Analyzed Application");
+  lines.push("");
+  lines.push(`- Spec: ${meta.specPath}`);
+  lines.push("");
+  lines.push("## Pipeline Steps");
+  lines.push("");
+  lines.push("1. Load and validate the OpenAPI spec.");
+  lines.push("2. Resolve $ref and merge schemas (allOf/oneOf/anyOf).");
+  lines.push("3. Extract operations and flatten request/response shapes.");
+  lines.push("4. Infer dependencies with heuristics and confidence.");
+  lines.push("5. Write JSON/Markdown reports.");
+  lines.push("");
+  lines.push("## Results");
+  lines.push("");
+  lines.push(`- Operations: ${operationsCount}`);
+  lines.push(`- Dependencies: ${dependenciesCount}`);
+  if (meta.dependencies.some((dep) => dep.verification)) {
+    lines.push(`- Verified: ${verified}`);
+    lines.push(`- Unverified: ${unverified}`);
+  }
+  lines.push("");
+  lines.push("## Dependencies by Kind");
+  lines.push("");
+  for (const [kind, count] of Object.entries(byKind)) {
+    lines.push(`- ${kind}: ${count}`);
+  }
+  lines.push("");
+  lines.push("## Dependencies by Reason");
+  lines.push("");
+  for (const [reason, count] of Object.entries(byReason)) {
+    lines.push(`- ${reason}: ${count}`);
+  }
+  lines.push("");
+  lines.push("## Operations");
+  lines.push("");
+  for (const op of meta.operations) {
+    lines.push(`- ${op.id} (${op.method.toUpperCase()} ${op.path})`);
+  }
+  lines.push("");
+  lines.push("## Outputs");
+  lines.push("");
+  lines.push("- output/dependencies.json");
+  lines.push("- output/summary.md");
+  lines.push("- output/analysis.md");
+  lines.push("");
+  fs.writeFileSync(path.join(outputDir, "analysis.md"), lines.join("\n"));
+};
+
 // Render a human-readable Markdown summary.
 const formatDependencyLine = (dep: Dependency) => {
   const score = dep.confidence.toFixed(2);
