@@ -1,3 +1,4 @@
 resources/
 **/mise.toml
 AGENTS.md
+**/.tmp-rest-server.pid
