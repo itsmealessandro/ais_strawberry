@@ -44,6 +44,39 @@ Il prototipo in `strawberry-rest/` implementa le fasi iniziali della pipeline pe
 - refinement dinamico per verificare dipendenze su esecuzioni reali
 - generazione di report in `output/dependencies.json` e `output/summary.md`
 
+### Cosa prende in input e cosa produce (e perche)
+
+Input principali:
+
+- Specifica OpenAPI 3.1 (YAML/JSON): e la fonte di verita per operazioni, parametri e schemi.
+- Base URL del servizio (solo per refinement): serve per eseguire il flusso reale e verificare le dipendenze.
+
+Output principali:
+
+- `strawberry-rest/output/dependencies.json`: dataset completo di operazioni e dipendenze, con confidenza e stato di verifica.
+- `strawberry-rest/output/summary.md`: sintesi leggibile che mostra come le operazioni si collegano tra loro.
+
+Scopo:
+
+- Rendere esplicite le dipendenze operative tra endpoint REST (es. token, cartId, orderId).
+- Fornire una base per la sintesi di un protocollo di invocazione o per test automatici.
+
+### Demo end-to-end
+
+Script di demo in root: `run-demo.sh`. Mostra l'intero flusso, dal parsing della spec alla verifica runtime.
+
+```bash
+./run-demo.sh
+```
+
+Passi eseguiti:
+
+1. Build/type-check di `strawberry-rest` e `rest-mini-e-commerce`.
+2. Analisi statica della specifica OpenAPI per inferire le dipendenze.
+3. Avvio del servizio REST di esempio.
+4. Refinement dinamico per verificare le dipendenze inferite.
+5. Scrittura dei report in `strawberry-rest/output/`.
+
 ### Caso di studio REST
 
 Il servizio `rest-mini-e-commerce/` fornisce un'API REST minima e ben documentata, pensata per esporre dipendenze reali:
