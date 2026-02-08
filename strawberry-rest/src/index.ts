@@ -1,4 +1,5 @@
 // CLI entrypoint: loads OpenAPI, extracts operations/dependencies, writes reports.
+import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
@@ -21,7 +22,23 @@ const argv = yargs(hideBin(process.argv))
   .parseSync();
 
 const specPath = argv.spec;
-const outputDir = argv.out;
+const outputBaseDir = argv.out;
+
+const getAppSlug = (spec: string) => {
+  const specDir = path.dirname(spec);
+  const dirName = path.basename(specDir);
+  if (dirName && dirName !== "." && dirName !== "src" && dirName !== "resources") {
+    return dirName;
+  }
+  return path.basename(spec).replace(/\.(yaml|yml|json)$/i, "");
+};
+
+const formatTimestamp = (date: Date) => {
+  const pad = (value: number) => value.toString().padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+};
+
+const outputDir = path.join(outputBaseDir, `${getAppSlug(specPath)}-${formatTimestamp(new Date())}`);
 
 // Run the core pipeline: load spec -> extract operations -> infer dependencies.
 const spec = loadOpenApiSpec(specPath);
