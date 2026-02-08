@@ -24,21 +24,24 @@ Il workflow applicato in questo repository segue una variante semplificata della
 2. Normalizzazione e risoluzione dei riferimenti (es. $ref, composizioni schema).
 3. Estrazione delle operazioni e dei loro input/output in una forma uniforme.
 4. Sintesi delle dipendenze tra operazioni a partire dai campi compatibili.
-5. Produzione di report e base informativa per la generazione del protocollo.
+5. Refinement dinamico delle dipendenze tramite esecuzioni reali.
+6. Produzione di report e base informativa per la generazione del protocollo.
 
-Per la variante REST, il focus attuale e sulle dipendenze: il protocollo vero e proprio e considerato un passo successivo.
+Per la variante REST, il focus attuale e sulle dipendenze con verifica runtime: la sintesi del protocollo vero e proprio e considerata un passo successivo.
 
 ## Risultati ottenuti
 
 ### StrawBerry-REST (prototipo)
 
-Il prototipo in `strawberry-rest/` implementa la prima fase della pipeline per REST:
+Il prototipo in `strawberry-rest/` implementa le fasi iniziali della pipeline per REST:
 
 - parsing di specifiche OpenAPI 3.1 (YAML/JSON)
 - risoluzione di $ref e merge di allOf
+- supporto a oneOf/anyOf con discriminatori quando presenti
 - flattening dei payload JSON in una lista di campi uniformi
-- estrazione delle operazioni con metadati (metodo, path, request/response, path params, auth)
-- estrazione di dipendenze tra operazioni con euristiche semplici
+- estrazione delle operazioni con metadati (metodo, path, request/response, path/query/header/cookie params, auth)
+- estrazione di dipendenze con euristiche migliorate e punteggio di confidenza
+- refinement dinamico per verificare dipendenze su esecuzioni reali
 - generazione di report in `output/dependencies.json` e `output/summary.md`
 
 ### Caso di studio REST
@@ -89,11 +92,11 @@ La cartella `knowledge/` raccoglie note su contesto, formalizzazione e limiti de
 
 ## Limiti attuali della variante REST
 
-- Supporto parziale agli schemi: allOf e risoluzione $ref sono coperti, ma oneOf/anyOf non lo sono ancora.
-- Estrazione dei parametri: al momento solo path params, non query/header/cookie.
-- Heuristics semplici: matching per nome esatto o entity-id, con poco supporto semantico.
+- Supporto schemi migliorato: oneOf/anyOf e discriminatori sono coperti, ma non esiste ancora una strategia per conflitti semantici.
+- Estrazione parametri completa per path/query/header/cookie, ma senza inferenza semantica avanzata.
+- Euristiche migliorate ma ancora limitate (niente sinonimi o mapping manuale).
 - Risposte: viene considerata solo la prima 2xx disponibile.
-- Nessuna fase di validazione dinamica o refinement basato su test.
+- Refinement dinamico: usa un flusso fisso di test, non generalizza a servizi REST arbitrari.
 
 ## Struttura del repository
 
@@ -107,4 +110,17 @@ La cartella `knowledge/` raccoglie note su contesto, formalizzazione e limiti de
 cd strawberry-rest
 npm install
 npm run analyze -- --spec ../rest-mini-e-commerce/openapi.yaml
+```
+
+Refinement dinamico (richiede il server del caso di studio in esecuzione):
+
+```bash
+cd rest-mini-e-commerce
+npm install
+npm run dev
+```
+
+```bash
+cd strawberry-rest
+npm run refine -- --spec ../rest-mini-e-commerce/openapi.yaml --base http://localhost:3000
 ```
