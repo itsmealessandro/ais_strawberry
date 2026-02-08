@@ -8,7 +8,8 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "analyze": "tsx src/index.ts",
-    "validate": "tsx src/validate.ts"
+    "validate": "tsx src/validate.ts",
+    "refine": "tsx src/refine.ts"
   },
   "dependencies": {
     "yaml": "2.6.1",

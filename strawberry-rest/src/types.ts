@@ -104,4 +104,5 @@ export type Dependency = {
   kind: "body" | "path" | "query" | "header" | "cookie" | "auth";
   reason: "exact-name" | "token-match" | "entity-id" | "auth";
   confidence: number;
+  verification?: "verified" | "unverified";
 };

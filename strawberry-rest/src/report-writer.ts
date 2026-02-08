@@ -35,8 +35,9 @@ export const writeMarkdownSummary = (outputDir: string, operations: OperationSha
   } else {
     for (const dep of dependencies) {
       const score = dep.confidence.toFixed(2);
+      const status = dep.verification ? `, ${dep.verification}` : "";
       lines.push(
-        `- ${dep.fromOperation} -> ${dep.toOperation} [${dep.kind}] ${dep.field}:${dep.type} (${dep.reason}, ${score})`
+        `- ${dep.fromOperation} -> ${dep.toOperation} [${dep.kind}] ${dep.field}:${dep.type} (${dep.reason}, ${score}${status})`
       );
     }
   }
