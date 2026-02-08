@@ -1,3 +1,4 @@
+// Validation runner for the sample REST service.
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
@@ -5,6 +6,7 @@ import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
 import { requestJson } from "./http-client.js";
 
+// Holds runtime values needed across validation steps.
 type RuntimeContext = {
   baseUrl: string;
   token?: string;
@@ -29,6 +31,7 @@ const spec = loadOpenApiSpec(argv.spec);
 const operations = extractOperations(spec);
 const dependencies = extractDependencies(operations);
 
+// Register a user and obtain an auth token.
 const registerAndLogin = async (ctx: RuntimeContext) => {
   const email = `user_${Date.now()}@example.com`;
   await requestJson(`${ctx.baseUrl}/auth/register`, {
@@ -49,6 +52,7 @@ const registerAndLogin = async (ctx: RuntimeContext) => {
   ctx.token = (login.data as { token?: string }).token;
 };
 
+// Create a cart and capture its id.
 const createCart = async (ctx: RuntimeContext) => {
   const cart = await requestJson(`${ctx.baseUrl}/carts`, {
     method: "POST",
@@ -60,6 +64,7 @@ const createCart = async (ctx: RuntimeContext) => {
   ctx.cartId = (cart.data as { id?: string }).id;
 };
 
+// Add the first available product to the cart.
 const addItem = async (ctx: RuntimeContext) => {
   const products = await requestJson(`${ctx.baseUrl}/products`);
   if (products.status !== 200 || !Array.isArray(products.data)) {
@@ -79,6 +84,7 @@ const addItem = async (ctx: RuntimeContext) => {
   }
 };
 
+// Create an order from the current cart.
 const createOrder = async (ctx: RuntimeContext) => {
   const order = await requestJson(`${ctx.baseUrl}/orders`, {
     method: "POST",
@@ -94,6 +100,7 @@ const createOrder = async (ctx: RuntimeContext) => {
   ctx.orderId = (order.data as { id?: string }).id;
 };
 
+// Fetch the created order to validate retrieval.
 const fetchOrder = async (ctx: RuntimeContext) => {
   const order = await requestJson(`${ctx.baseUrl}/orders/${ctx.orderId}`, {
     headers: { Authorization: `Bearer ${ctx.token}` }
@@ -103,6 +110,7 @@ const fetchOrder = async (ctx: RuntimeContext) => {
   }
 };
 
+// Execute the end-to-end validation flow.
 const run = async () => {
   console.log(`Validating ${dependencies.length} dependencies against ${argv.base}`);
   const ctx: RuntimeContext = { baseUrl: argv.base };

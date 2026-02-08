@@ -1,18 +1,22 @@
+// Writes JSON and Markdown reports for extracted data.
 import fs from "fs";
 import path from "path";
 import type { Dependency, OperationShape } from "./types.js";
 
+// Ensure the output directory exists.
 const ensureDir = (dir: string) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 };
 
+// Serialize the full report as JSON.
 export const writeJsonReport = (outputDir: string, data: unknown) => {
   ensureDir(outputDir);
   fs.writeFileSync(path.join(outputDir, "dependencies.json"), JSON.stringify(data, null, 2));
 };
 
+// Render a human-readable Markdown summary.
 export const writeMarkdownSummary = (outputDir: string, operations: OperationShape[], dependencies: Dependency[]) => {
   ensureDir(outputDir);
   const lines: string[] = [];

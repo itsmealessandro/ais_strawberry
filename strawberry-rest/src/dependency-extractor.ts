@@ -1,7 +1,10 @@
+// Infers dependencies between operations based on field compatibility.
 import type { Dependency, OperationShape } from "./types.js";
 
+// Normalize field names to improve matching across naming styles.
 const normalizeField = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+// Split a field name into lowercase tokens for heuristic matching.
 const splitTokens = (name: string) =>
   name
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -9,6 +12,7 @@ const splitTokens = (name: string) =>
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 
+// Infer entity name from fields like cartId/orderId.
 const inferEntityFromField = (fieldName: string) => {
   const tokens = splitTokens(fieldName);
   const idIndex = tokens.findIndex((token) => token === "id");
@@ -18,6 +22,7 @@ const inferEntityFromField = (fieldName: string) => {
   return undefined;
 };
 
+// Match source response fields to target inputs across body and params.
 const matchFields = (source: OperationShape, target: OperationShape) => {
   const dependencies: Dependency[] = [];
   const sourceFields = source.responseFields.map((field) => ({
@@ -134,6 +139,7 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
   return dependencies;
 };
 
+// Compute all dependencies and add auth relations.
 export const extractDependencies = (operations: OperationShape[]) => {
   const dependencies: Dependency[] = [];
   for (const source of operations) {

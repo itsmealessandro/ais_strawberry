@@ -1,6 +1,8 @@
+// Flattens OpenAPI schemas into simple field lists.
 import type { FieldShape, OpenApiSpec, SchemaObject } from "./types.js";
 import { resolveRef } from "./openapi-loader.js";
 
+// Merge an allOf schema into a single object schema.
 const mergeAllOf = (spec: OpenApiSpec, schema: SchemaObject): SchemaObject => {
   if (!schema.allOf) {
     return schema;
@@ -17,6 +19,7 @@ const mergeAllOf = (spec: OpenApiSpec, schema: SchemaObject): SchemaObject => {
   return merged;
 };
 
+// Resolve $ref and allOf to return a normalized schema.
 export const resolveSchema = (spec: OpenApiSpec, schema?: SchemaObject): SchemaObject => {
   if (!schema) {
     return { type: "object" };
@@ -31,6 +34,7 @@ export const resolveSchema = (spec: OpenApiSpec, schema?: SchemaObject): SchemaO
   return schema;
 };
 
+// Convert a nested object schema into dotted path fields.
 const flattenObject = (schema: SchemaObject, prefix: string): FieldShape[] => {
   const fields: FieldShape[] = [];
   const properties = schema.properties ?? {};
@@ -47,6 +51,7 @@ const flattenObject = (schema: SchemaObject, prefix: string): FieldShape[] => {
   return fields;
 };
 
+// Flatten any schema into a list of FieldShape entries.
 export const flattenSchema = (spec: OpenApiSpec, schema?: SchemaObject): FieldShape[] => {
   const resolved = resolveSchema(spec, schema);
   if (resolved.type === "object") {

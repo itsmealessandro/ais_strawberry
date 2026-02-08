@@ -1,7 +1,10 @@
+// Shared type definitions for the StrawBerry-REST pipeline.
 export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 
+// Supported parameter locations in OpenAPI.
 export type ParameterLocation = "path" | "query" | "header" | "cookie";
 
+// Subset of OpenAPI schema objects used by the prototype.
 export type SchemaObject = {
   type?: string;
   format?: string;
@@ -14,19 +17,23 @@ export type SchemaObject = {
   allOf?: SchemaObject[];
 };
 
+// Represents a media type schema wrapper in OpenAPI.
 export type MediaTypeObject = {
   schema?: SchemaObject;
 };
 
+// Request body definition in OpenAPI operations.
 export type RequestBodyObject = {
   content?: Record<string, MediaTypeObject>;
   required?: boolean;
 };
 
+// Response definition in OpenAPI operations.
 export type ResponseObject = {
   content?: Record<string, MediaTypeObject>;
 };
 
+// Minimal operation object shape used for extraction.
 export type OperationObject = {
   operationId?: string;
   parameters?: ParameterObject[];
@@ -37,6 +44,7 @@ export type OperationObject = {
   summary?: string;
 };
 
+// Parameter definition for query/path/header/cookie.
 export type ParameterObject = {
   name: string;
   in: ParameterLocation;
@@ -44,8 +52,10 @@ export type ParameterObject = {
   schema?: SchemaObject;
 };
 
+// Path item mapping method -> operation.
 export type PathItemObject = Record<HttpMethod, OperationObject>;
 
+// Root OpenAPI document shape.
 export type OpenApiSpec = {
   openapi: string;
   info?: Record<string, unknown>;
@@ -56,6 +66,7 @@ export type OpenApiSpec = {
   };
 };
 
+// Flattened field descriptor for requests/responses.
 export type FieldShape = {
   name: string;
   type: string;
@@ -63,10 +74,12 @@ export type FieldShape = {
   entity?: string;
 };
 
+// Flattened parameter descriptor, with its location.
 export type ParamShape = FieldShape & {
   location: ParameterLocation;
 };
 
+// Normalized operation shape used by dependency extraction.
 export type OperationShape = {
   id: string;
   method: HttpMethod;
@@ -78,6 +91,7 @@ export type OperationShape = {
   requiresAuth: boolean;
 };
 
+// Dependency relation inferred between two operations.
 export type Dependency = {
   fromOperation: string;
   toOperation: string;
