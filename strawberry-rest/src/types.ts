@@ -15,6 +15,10 @@ export type SchemaObject = {
   oneOf?: SchemaObject[];
   anyOf?: SchemaObject[];
   allOf?: SchemaObject[];
+  discriminator?: {
+    propertyName: string;
+    mapping?: Record<string, string>;
+  };
 };
 
 // Represents a media type schema wrapper in OpenAPI.
