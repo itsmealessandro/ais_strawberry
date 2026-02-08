@@ -98,5 +98,6 @@ export type Dependency = {
   field: string;
   type: string;
   kind: "body" | "path" | "query" | "header" | "cookie" | "auth";
-  reason: "exact-name" | "entity-id" | "auth";
+  reason: "exact-name" | "token-match" | "entity-id" | "auth";
+  confidence: number;
 };

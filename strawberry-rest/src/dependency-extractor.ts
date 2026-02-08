@@ -4,6 +4,25 @@ import type { Dependency, OperationShape } from "./types.js";
 // Normalize field names to improve matching across naming styles.
 const normalizeField = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+const normalizeTokens = (name: string) =>
+  splitTokens(name)
+    .map((token) => token.replace(/ids?$/, "id"))
+    .filter((token) => token !== "the" && token !== "a" && token !== "an");
+
+const tokensToKey = (tokens: string[]) => tokens.join("");
+
+const getFormat = (field: { format?: string }) => field.format ?? "";
+
+const isCompatibleType = (a: { type: string; format?: string }, b: { type: string; format?: string }) => {
+  if (a.type !== b.type) {
+    return false;
+  }
+  if (!a.format || !b.format) {
+    return true;
+  }
+  return a.format === b.format;
+};
+
 // Split a field name into lowercase tokens for heuristic matching.
 const splitTokens = (name: string) =>
   name
@@ -28,24 +47,44 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
   const sourceFields = source.responseFields.map((field) => ({
     field,
     key: normalizeField(field.name),
+    tokenKey: tokensToKey(normalizeTokens(field.name)),
     type: field.type
   }));
   const targetFields = target.requestFields.map((field) => ({
     field,
     key: normalizeField(field.name),
+    tokenKey: tokensToKey(normalizeTokens(field.name)),
     type: field.type
   }));
 
   for (const sourceField of sourceFields) {
     for (const targetField of targetFields) {
-      if (sourceField.key && sourceField.key === targetField.key && sourceField.type === targetField.type) {
+      if (sourceField.key && sourceField.key === targetField.key && isCompatibleType(sourceField, targetField)) {
+        const hasFormat = getFormat(sourceField.field) && getFormat(targetField.field);
         dependencies.push({
           fromOperation: source.id,
           toOperation: target.id,
           field: targetField.field.name,
           type: targetField.type,
           kind: "body",
-          reason: "exact-name"
+          reason: "exact-name",
+          confidence: hasFormat ? 0.95 : 0.9
+        });
+        continue;
+      }
+      if (
+        sourceField.tokenKey &&
+        sourceField.tokenKey === targetField.tokenKey &&
+        isCompatibleType(sourceField, targetField)
+      ) {
+        dependencies.push({
+          fromOperation: source.id,
+          toOperation: target.id,
+          field: targetField.field.name,
+          type: targetField.type,
+          kind: "body",
+          reason: "token-match",
+          confidence: 0.7
         });
       }
     }
@@ -59,29 +98,32 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
     const entityMatch = source.responseFields.find((field) =>
       field.name === "id" && field.entity?.toLowerCase() === targetEntity
     );
-    if (entityMatch && entityMatch.type === targetField.type) {
+    if (entityMatch && isCompatibleType(entityMatch, targetField)) {
       dependencies.push({
         fromOperation: source.id,
         toOperation: target.id,
         field: targetField.name,
         type: targetField.type,
         kind: "body",
-        reason: "entity-id"
+        reason: "entity-id",
+        confidence: 0.8
       });
     }
   }
 
   for (const pathParam of target.pathParams) {
     const key = normalizeField(pathParam.name);
-    const match = sourceFields.find((field) => field.key === key && field.type === pathParam.type);
+    const match = sourceFields.find((field) => field.key === key && isCompatibleType(field, pathParam));
     if (match) {
+      const hasFormat = getFormat(match.field) && getFormat(pathParam);
       dependencies.push({
         fromOperation: source.id,
         toOperation: target.id,
         field: pathParam.name,
         type: pathParam.type,
         kind: "path",
-        reason: "exact-name"
+        reason: "exact-name",
+        confidence: hasFormat ? 0.95 : 0.9
       });
       continue;
     }
@@ -90,29 +132,32 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
     const entityMatch = source.responseFields.find((field) =>
       field.name === "id" && field.entity?.toLowerCase() === entity
     );
-    if (entityMatch && entityMatch.type === pathParam.type) {
+    if (entityMatch && isCompatibleType(entityMatch, pathParam)) {
       dependencies.push({
         fromOperation: source.id,
         toOperation: target.id,
         field: pathParam.name,
         type: pathParam.type,
         kind: "path",
-        reason: "entity-id"
+        reason: "entity-id",
+        confidence: 0.8
       });
     }
   }
 
   for (const param of target.otherParams) {
     const key = normalizeField(param.name);
-    const match = sourceFields.find((field) => field.key === key && field.type === param.type);
+    const match = sourceFields.find((field) => field.key === key && isCompatibleType(field, param));
     if (match) {
+      const hasFormat = getFormat(match.field) && getFormat(param);
       dependencies.push({
         fromOperation: source.id,
         toOperation: target.id,
         field: param.name,
         type: param.type,
         kind: param.location,
-        reason: "exact-name"
+        reason: "exact-name",
+        confidence: hasFormat ? 0.95 : 0.9
       });
       continue;
     }
@@ -124,14 +169,15 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
     const entityMatch = source.responseFields.find((field) =>
       field.name === "id" && field.entity?.toLowerCase() === entity
     );
-    if (entityMatch && entityMatch.type === param.type) {
+    if (entityMatch && isCompatibleType(entityMatch, param)) {
       dependencies.push({
         fromOperation: source.id,
         toOperation: target.id,
         field: param.name,
         type: param.type,
         kind: param.location,
-        reason: "entity-id"
+        reason: "entity-id",
+        confidence: 0.8
       });
     }
   }
@@ -167,7 +213,8 @@ export const extractDependencies = (operations: OperationShape[]) => {
         field: "Authorization",
         type: "string",
         kind: "auth",
-        reason: "auth"
+        reason: "auth",
+        confidence: 0.85
       });
     }
   }

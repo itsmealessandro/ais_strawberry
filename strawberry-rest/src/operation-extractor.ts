@@ -4,6 +4,7 @@ import type {
   OpenApiSpec,
   OperationObject,
   OperationShape,
+  ParameterObject,
   ParamShape,
   PathItemObject,
   RequestBodyObject,
@@ -41,7 +42,7 @@ const extractSchemaName = (schema?: { $ref?: string }) => {
 };
 
 // Convert a parameter into a uniform ParamShape.
-const toParamShape = (param: OperationObject["parameters"][number]): ParamShape => ({
+const toParamShape = (param: ParameterObject): ParamShape => ({
   name: param.name,
   type: param.schema?.type ?? "string",
   format: param.schema?.format,
