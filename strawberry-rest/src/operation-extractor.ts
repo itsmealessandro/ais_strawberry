@@ -3,6 +3,7 @@ import type {
   OpenApiSpec,
   OperationObject,
   OperationShape,
+  ParamShape,
   PathItemObject,
   RequestBodyObject,
   ResponseObject
@@ -35,17 +36,27 @@ const extractSchemaName = (schema?: { $ref?: string }) => {
   return parts[parts.length - 1];
 };
 
+const toParamShape = (param: OperationObject["parameters"][number]): ParamShape => ({
+  name: param.name,
+  type: param.schema?.type ?? "string",
+  format: param.schema?.format,
+  location: param.in
+});
+
 const extractPathParams = (parameters: OperationObject["parameters"]) => {
   if (!parameters) {
-    return [] as FieldShape[];
+    return [] as ParamShape[];
+  }
+  return parameters.filter((param) => param.in === "path").map(toParamShape);
+};
+
+const extractOtherParams = (parameters: OperationObject["parameters"]) => {
+  if (!parameters) {
+    return [] as ParamShape[];
   }
   return parameters
-    .filter((param) => param.in === "path")
-    .map((param) => ({
-      name: param.name,
-      type: param.schema?.type ?? "string",
-      format: param.schema?.format
-    }));
+    .filter((param) => param.in === "query" || param.in === "header" || param.in === "cookie")
+    .map(toParamShape);
 };
 
 const extractRequestFields = (spec: OpenApiSpec, operation: OperationObject) => {
@@ -90,6 +101,7 @@ export const extractOperations = (spec: OpenApiSpec): OperationShape[] => {
       const requestFields = extractRequestFields(spec, op);
       const responseFields = extractResponseFields(spec, op);
       const pathParams = extractPathParams(op.parameters);
+      const otherParams = extractOtherParams(op.parameters);
       const requiresAuth = hasBearerAuth(op);
 
       shapes.push({
@@ -99,6 +111,7 @@ export const extractOperations = (spec: OpenApiSpec): OperationShape[] => {
         requestFields,
         responseFields,
         pathParams,
+        otherParams,
         requiresAuth
       });
     }

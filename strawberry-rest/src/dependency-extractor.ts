@@ -97,6 +97,40 @@ const matchFields = (source: OperationShape, target: OperationShape) => {
     }
   }
 
+  for (const param of target.otherParams) {
+    const key = normalizeField(param.name);
+    const match = sourceFields.find((field) => field.key === key && field.type === param.type);
+    if (match) {
+      dependencies.push({
+        fromOperation: source.id,
+        toOperation: target.id,
+        field: param.name,
+        type: param.type,
+        kind: param.location,
+        reason: "exact-name"
+      });
+      continue;
+    }
+
+    const entity = inferEntityFromField(param.name);
+    if (!entity) {
+      continue;
+    }
+    const entityMatch = source.responseFields.find((field) =>
+      field.name === "id" && field.entity?.toLowerCase() === entity
+    );
+    if (entityMatch && entityMatch.type === param.type) {
+      dependencies.push({
+        fromOperation: source.id,
+        toOperation: target.id,
+        field: param.name,
+        type: param.type,
+        kind: param.location,
+        reason: "entity-id"
+      });
+    }
+  }
+
   return dependencies;
 };
 

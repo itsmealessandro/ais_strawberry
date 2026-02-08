@@ -63,13 +63,18 @@ export type FieldShape = {
   entity?: string;
 };
 
+export type ParamShape = FieldShape & {
+  location: ParameterLocation;
+};
+
 export type OperationShape = {
   id: string;
   method: HttpMethod;
   path: string;
   requestFields: FieldShape[];
   responseFields: FieldShape[];
-  pathParams: FieldShape[];
+  pathParams: ParamShape[];
+  otherParams: ParamShape[];
   requiresAuth: boolean;
 };
 
@@ -78,6 +83,6 @@ export type Dependency = {
   toOperation: string;
   field: string;
   type: string;
-  kind: "body" | "path" | "auth";
+  kind: "body" | "path" | "query" | "header" | "cookie" | "auth";
   reason: "exact-name" | "entity-id" | "auth";
 };
