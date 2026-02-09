@@ -1,7 +1,9 @@
 // Runtime refinement for inferred dependencies using a sample REST flow.
+import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
+import { validateOpenApiSpec } from "./openapi-validator.js";
 import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
 import { writeAnalysisReport, writeJsonReport, writeMarkdownSummary, writeRefinementDiff } from "./report-writer.js";
@@ -45,6 +47,22 @@ const argv = yargs(hideBin(process.argv))
     describe: "Output directory for reports"
   })
   .parseSync();
+
+const getAppSlug = (spec: string) => {
+  const specDir = path.dirname(spec);
+  const dirName = path.basename(specDir);
+  if (dirName && dirName !== "." && dirName !== "src" && dirName !== "resources") {
+    return dirName;
+  }
+  return path.basename(spec).replace(/\.(yaml|yml|json)$/i, "");
+};
+
+const formatTimestamp = (date: Date) => {
+  const pad = (value: number) => value.toString().padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+};
+
+const outputDir = path.join(argv.out, `${getAppSlug(argv.spec)}-${formatTimestamp(new Date())}`);
 
 const normalizeField = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -197,6 +215,16 @@ const verifyDependency = (
 };
 
 const spec = loadOpenApiSpec(argv.spec);
+const validation = validateOpenApiSpec(spec);
+if (validation.errors.length > 0) {
+  for (const message of validation.errors) {
+    console.error(`Validation error: ${message}`);
+  }
+  process.exit(1);
+}
+for (const message of validation.warnings) {
+  console.warn(`Validation warning: ${message}`);
+}
 const operations = extractOperations(spec);
 const dependencies = extractDependencies(operations);
 const evidence = new Map<string, OperationEvidence>();
@@ -340,20 +368,21 @@ const run = async () => {
     return { dependency, before, after };
   });
 
-  writeJsonReport(argv.out, { operations, dependencies: refined, refinementChanges: changes });
-  writeMarkdownSummary(argv.out, operations, refined);
-  writeRefinementDiff(argv.out, refined, changes);
-  writeAnalysisReport(argv.out, {
+  writeJsonReport(outputDir, { operations, dependencies: refined, refinementChanges: changes });
+  writeMarkdownSummary(outputDir, operations, refined);
+  writeRefinementDiff(outputDir, refined, changes);
+  writeAnalysisReport(outputDir, {
     specPath: argv.spec,
     operations,
-    dependencies: refined
+    dependencies: refined,
+    validation
   });
 
   const verified = refined.filter((dep) => dep.verification === "verified").length;
   const changed = changes.filter((item) => item.before !== item.after).length;
   console.log(`Verified ${verified}/${refined.length} dependencies.`);
   console.log(`Changed ${changed}/${changes.length} dependencies after refinement.`);
-  console.log(`Refinement diff written to ${argv.out}/refinement-diff.md`);
+  console.log(`Refinement diff written to ${outputDir}/refinement-diff.md`);
 };
 
 run().catch((error: unknown) => {

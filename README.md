@@ -53,8 +53,8 @@ Input principali:
 
 Output principali:
 
-- `strawberry-rest/output/dependencies.json`: dataset completo di operazioni e dipendenze, con confidenza e stato di verifica.
-- `strawberry-rest/output/summary.md`: sintesi leggibile che mostra come le operazioni si collegano tra loro.
+- `strawberry-rest/output/<app>-<timestamp>/dependencies.json`: dataset completo di operazioni e dipendenze, con confidenza e stato di verifica.
+- `strawberry-rest/output/<app>-<timestamp>/summary.md`: sintesi leggibile che mostra come le operazioni si collegano tra loro.
 
 Scopo:
 
@@ -75,7 +75,7 @@ Passi eseguiti:
 2. Analisi statica della specifica OpenAPI per inferire le dipendenze.
 3. Avvio del servizio REST di esempio.
 4. Refinement dinamico per verificare le dipendenze inferite.
-5. Scrittura dei report in `strawberry-rest/output/`.
+5. Scrittura dei report in `strawberry-rest/output/<app>-<timestamp>/` dove `<app>` e il nome della cartella dell'app analizzata.
 
 ### Caso di studio REST
 
@@ -157,3 +157,10 @@ npm run dev
 cd strawberry-rest
 npm run refine -- --spec ../rest-mini-e-commerce/openapi.yaml --base http://localhost:3000
 ```
+
+## App di riferimento aggiuntiva
+
+E stata importata l'app Swagger Petstore in `third-party/` per testare StrawBerry-REST su una specifica esterna:
+
+- Repo originale: https://github.com/swagger-api/swagger-petstore
+- Spec locale: `third-party/src/main/resources/openapi.yaml`
