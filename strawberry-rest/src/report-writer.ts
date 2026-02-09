@@ -22,6 +22,18 @@ export const writeAnalysisReport = (
     specPath: string;
     operations: OperationShape[];
     dependencies: Dependency[];
+    validation?: {
+      errors: string[];
+      warnings: string[];
+      stats: {
+        totalOperations: number;
+        operationsWith2xx: number;
+        operationsWithResponseSchema: number;
+        operationsWithRequestSchema: number;
+        paramsMissingSchema: number;
+        authOperations: number;
+      };
+    };
   }
 ) => {
   ensureDir(outputDir);
@@ -77,6 +89,41 @@ export const writeAnalysisReport = (
   lines.push("");
   for (const op of meta.operations) {
     lines.push(`- ${op.id} (${op.method.toUpperCase()} ${op.path})`);
+  }
+  if (meta.validation) {
+    lines.push("");
+    lines.push("## Validation");
+    lines.push("");
+    lines.push(meta.validation.errors.length === 0 ? "Status: pass" : "Status: fail");
+    lines.push("");
+    lines.push("### Validation Stats");
+    lines.push("");
+    lines.push(`- totalOperations: ${meta.validation.stats.totalOperations}`);
+    lines.push(`- operationsWith2xx: ${meta.validation.stats.operationsWith2xx}`);
+    lines.push(`- operationsWithResponseSchema: ${meta.validation.stats.operationsWithResponseSchema}`);
+    lines.push(`- operationsWithRequestSchema: ${meta.validation.stats.operationsWithRequestSchema}`);
+    lines.push(`- paramsMissingSchema: ${meta.validation.stats.paramsMissingSchema}`);
+    lines.push(`- authOperations: ${meta.validation.stats.authOperations}`);
+    lines.push("");
+    lines.push("### Errors");
+    lines.push("");
+    if (meta.validation.errors.length === 0) {
+      lines.push("None.");
+    } else {
+      for (const message of meta.validation.errors) {
+        lines.push(`- ${message}`);
+      }
+    }
+    lines.push("");
+    lines.push("### Warnings");
+    lines.push("");
+    if (meta.validation.warnings.length === 0) {
+      lines.push("None.");
+    } else {
+      for (const message of meta.validation.warnings) {
+        lines.push(`- ${message}`);
+      }
+    }
   }
   lines.push("");
   lines.push("## Outputs");

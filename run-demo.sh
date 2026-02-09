@@ -19,8 +19,10 @@ ensure_deps() {
 
 wait_for_server() {
   local url="$1"
+  local attempts="$2"
+  local label="$3"
   if command -v curl >/dev/null 2>&1; then
-    for _ in {1..20}; do
+    for _ in $(seq 1 "$attempts"); do
       if curl -sSf "$url" >/dev/null; then
         return 0
       fi
@@ -28,6 +30,10 @@ wait_for_server() {
     done
   else
     sleep 2
+  fi
+  if [[ -n "$label" && -f "$label" ]]; then
+    echo "Last 20 lines of $(basename "$label")"
+    tail -n 20 "$label" || true
   fi
   return 1
 }
@@ -69,7 +75,7 @@ print_step "Start e-commerce REST service"
 )
 ECOM_PID="$(cat "${ROOT_DIR}/.tmp-rest-server.pid")"
 
-if ! wait_for_server "http://localhost:3000/health"; then
+if ! wait_for_server "http://localhost:3000/health" 20 "${ROOT_DIR}/.tmp-rest-server.log"; then
   echo "E-commerce service did not become ready. Check .tmp-rest-server.log"
   exit 1
 fi
@@ -80,7 +86,7 @@ print_step "Runtime refinement: verify inferred dependencies (e-commerce)"
 print_step "Static analysis: infer dependencies from OpenAPI (petstore)"
 (cd "${ROOT_DIR}/strawberry-rest" && npm run analyze -- --spec ../third-party/src/main/resources/openapi.yaml)
 
-print_step "Start Petstore REST service"
+print_step "Starting Petstore REST service..."
 (
   cd "${ROOT_DIR}/third-party"
   mvn package jetty:run >"${ROOT_DIR}/.tmp-petstore.log" 2>&1 &
@@ -88,7 +94,7 @@ print_step "Start Petstore REST service"
 )
 PETSTORE_PID="$(cat "${ROOT_DIR}/.tmp-petstore.pid")"
 
-if ! wait_for_server "http://localhost:8080/api/v3/openapi.json"; then
+if ! wait_for_server "http://localhost:8080/api/v3/openapi.json" 160 "${ROOT_DIR}/.tmp-petstore.log"; then
   echo "Petstore service did not become ready. Check .tmp-petstore.log"
   exit 1
 fi

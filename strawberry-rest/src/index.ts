@@ -3,6 +3,7 @@ import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
+import { validateOpenApiSpec } from "./openapi-validator.js";
 import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
 import { writeAnalysisReport, writeJsonReport, writeMarkdownSummary } from "./report-writer.js";
@@ -42,6 +43,16 @@ const outputDir = path.join(outputBaseDir, `${getAppSlug(specPath)}-${formatTime
 
 // Run the core pipeline: load spec -> extract operations -> infer dependencies.
 const spec = loadOpenApiSpec(specPath);
+const validation = validateOpenApiSpec(spec);
+if (validation.errors.length > 0) {
+  for (const message of validation.errors) {
+    console.error(`Validation error: ${message}`);
+  }
+  process.exit(1);
+}
+for (const message of validation.warnings) {
+  console.warn(`Validation warning: ${message}`);
+}
 const operations = extractOperations(spec);
 const dependencies = extractDependencies(operations);
 
@@ -51,7 +62,8 @@ writeMarkdownSummary(outputDir, operations, dependencies);
 writeAnalysisReport(outputDir, {
   specPath,
   operations,
-  dependencies
+  dependencies,
+  validation
 });
 
 console.log(`Extracted ${operations.length} operations and ${dependencies.length} dependencies.`);

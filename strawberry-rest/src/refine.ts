@@ -3,6 +3,7 @@ import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { loadOpenApiSpec } from "./openapi-loader.js";
+import { validateOpenApiSpec } from "./openapi-validator.js";
 import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
 import { writeAnalysisReport, writeJsonReport, writeMarkdownSummary, writeRefinementDiff } from "./report-writer.js";
@@ -214,6 +215,16 @@ const verifyDependency = (
 };
 
 const spec = loadOpenApiSpec(argv.spec);
+const validation = validateOpenApiSpec(spec);
+if (validation.errors.length > 0) {
+  for (const message of validation.errors) {
+    console.error(`Validation error: ${message}`);
+  }
+  process.exit(1);
+}
+for (const message of validation.warnings) {
+  console.warn(`Validation warning: ${message}`);
+}
 const operations = extractOperations(spec);
 const dependencies = extractDependencies(operations);
 const evidence = new Map<string, OperationEvidence>();
@@ -363,7 +374,8 @@ const run = async () => {
   writeAnalysisReport(outputDir, {
     specPath: argv.spec,
     operations,
-    dependencies: refined
+    dependencies: refined,
+    validation
   });
 
   const verified = refined.filter((dep) => dep.verification === "verified").length;
