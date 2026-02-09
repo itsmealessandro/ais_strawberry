@@ -102,6 +102,18 @@ export const writeAnalysisReport = (
     lines.push(`- operationsWith2xx: ${meta.validation.stats.operationsWith2xx}`);
     lines.push(`- operationsWithResponseSchema: ${meta.validation.stats.operationsWithResponseSchema}`);
     lines.push(`- operationsWithRequestSchema: ${meta.validation.stats.operationsWithRequestSchema}`);
+    const requestExamples = (meta.validation.stats as { operationsWithRequestExamples?: number }).operationsWithRequestExamples;
+    const totalParams = (meta.validation.stats as { totalParams?: number }).totalParams;
+    const paramsWithExamples = (meta.validation.stats as { paramsWithExamples?: number }).paramsWithExamples;
+    if (requestExamples !== undefined) {
+      lines.push(`- operationsWithRequestExamples: ${requestExamples}`);
+    }
+    if (totalParams !== undefined) {
+      lines.push(`- totalParams: ${totalParams}`);
+    }
+    if (paramsWithExamples !== undefined) {
+      lines.push(`- paramsWithExamples: ${paramsWithExamples}`);
+    }
     lines.push(`- paramsMissingSchema: ${meta.validation.stats.paramsMissingSchema}`);
     lines.push(`- authOperations: ${meta.validation.stats.authOperations}`);
     lines.push("");

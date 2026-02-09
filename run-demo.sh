@@ -100,7 +100,9 @@ if ! wait_for_server "http://localhost:8080/api/v3/openapi.json" 160 "${ROOT_DIR
 fi
 
 print_step "Runtime refinement: verify inferred dependencies (petstore)"
-(cd "${ROOT_DIR}/strawberry-rest" && npm run refine -- --spec ../third-party/src/main/resources/openapi.yaml --base http://localhost:8080)
+if ! (cd "${ROOT_DIR}/strawberry-rest" && npm run refine -- --spec ../third-party/src/main/resources/openapi.yaml --base http://localhost:8080); then
+  echo "Petstore refinement failed. This is expected if the API does not provide input examples for all endpoints."
+fi
 
 print_step "Outputs"
 cat <<'EOF'

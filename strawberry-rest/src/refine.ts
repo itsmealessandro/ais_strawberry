@@ -1,4 +1,5 @@
 // Runtime refinement for inferred dependencies using a sample REST flow.
+import fs from "fs";
 import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -8,7 +9,8 @@ import { extractOperations } from "./operation-extractor.js";
 import { extractDependencies } from "./dependency-extractor.js";
 import { writeAnalysisReport, writeJsonReport, writeMarkdownSummary, writeRefinementDiff } from "./report-writer.js";
 import { requestJson } from "./http-client.js";
-import type { Dependency, OperationShape } from "./types.js";
+import type { Dependency, OperationObject, OperationShape, PathItemObject } from "./types.js";
+import { extractExampleInputs } from "./example-extractor.js";
 
 type RequestEvidence = {
   body: Record<string, unknown>;
@@ -21,13 +23,32 @@ type RequestEvidence = {
 type OperationEvidence = {
   request: RequestEvidence;
   response: Record<string, unknown>;
+  status: number;
+  ok: boolean;
+  phase: "example" | "filled";
+};
+
+type EvidenceBucket = {
+  example?: OperationEvidence;
+  filled?: OperationEvidence;
+};
+
+type IterationSummary = {
+  iteration: number;
+  phase: "example" | "filled";
+  okOperations: number;
+  totalOperations: number;
+  newOutputs: number;
+  newlyVerified: Dependency[];
+};
+
+type OutputPool = {
+  values: Record<string, unknown[]>;
+  entities: Record<string, Record<string, unknown[]>>;
 };
 
 type RuntimeContext = {
   baseUrl: string;
-  token?: string;
-  cartId?: string;
-  orderId?: string;
 };
 
 const argv = yargs(hideBin(process.argv))
@@ -45,6 +66,11 @@ const argv = yargs(hideBin(process.argv))
     type: "string",
     default: "output",
     describe: "Output directory for reports"
+  })
+  .option("max-iterations", {
+    type: "number",
+    default: 5,
+    describe: "Maximum refinement iterations"
   })
   .parseSync();
 
@@ -165,43 +191,58 @@ const normalizeValue = (value: unknown) => {
   return JSON.stringify(value);
 };
 
+const pickBestEvidence = (bucket?: EvidenceBucket) => {
+  if (bucket?.filled?.ok) {
+    return bucket.filled;
+  }
+  if (bucket?.example?.ok) {
+    return bucket.example;
+  }
+  return bucket?.filled ?? bucket?.example;
+};
+
 const verifyDependency = (
   dependency: Dependency,
-  fromEvidence?: OperationEvidence,
-  toEvidence?: OperationEvidence
+  fromEvidence?: EvidenceBucket,
+  toEvidence?: EvidenceBucket
 ) => {
-  if (!fromEvidence || !toEvidence) {
+  const from = pickBestEvidence(fromEvidence);
+  const to = pickBestEvidence(toEvidence);
+  if (!from || !to) {
+    return "unverified" as const;
+  }
+  if (!from.ok || !to.ok) {
     return "unverified" as const;
   }
 
   const providerValue = (() => {
     if (dependency.kind === "auth") {
-      return findTokenValue(fromEvidence.response);
+      return findTokenValue(from.response);
     }
     if (dependency.reason === "entity-id") {
-      return fromEvidence.response.id ?? findByNormalizedKey(fromEvidence.response, "id");
+      return from.response.id ?? findByNormalizedKey(from.response, "id");
     }
-    return fromEvidence.response[dependency.field] ?? findByNormalizedKey(fromEvidence.response, dependency.field);
+    return from.response[dependency.field] ?? findByNormalizedKey(from.response, dependency.field);
   })();
 
   const consumerValue = (() => {
     if (dependency.kind === "auth") {
-      return extractBearerToken(toEvidence.request.header.authorization);
+      return extractBearerToken(to.request.header.authorization);
     }
     if (dependency.kind === "body") {
-      return getValueByPath(toEvidence.request.body, dependency.field);
+      return getValueByPath(to.request.body, dependency.field);
     }
     if (dependency.kind === "path") {
-      return toEvidence.request.path[dependency.field] ?? findByNormalizedKey(toEvidence.request.path, dependency.field);
+      return to.request.path[dependency.field] ?? findByNormalizedKey(to.request.path, dependency.field);
     }
     if (dependency.kind === "query") {
-      return toEvidence.request.query[dependency.field] ?? findByNormalizedKey(toEvidence.request.query, dependency.field);
+      return to.request.query[dependency.field] ?? findByNormalizedKey(to.request.query, dependency.field);
     }
     if (dependency.kind === "header") {
-      return toEvidence.request.header[dependency.field.toLowerCase()];
+      return to.request.header[dependency.field.toLowerCase()];
     }
     if (dependency.kind === "cookie") {
-      return toEvidence.request.cookie[dependency.field] ?? findByNormalizedKey(toEvidence.request.cookie, dependency.field);
+      return to.request.cookie[dependency.field] ?? findByNormalizedKey(to.request.cookie, dependency.field);
     }
     return undefined;
   })();
@@ -227,131 +268,328 @@ for (const message of validation.warnings) {
 }
 const operations = extractOperations(spec);
 const dependencies = extractDependencies(operations);
-const evidence = new Map<string, OperationEvidence>();
+const evidence = new Map<string, EvidenceBucket>();
 
 const callAndRecord = async (
   ctx: RuntimeContext,
-  method: "get" | "post" | "put" | "patch" | "delete",
-  path: string,
-  options?: {
+  operation: OperationShape,
+  options: {
     body?: Record<string, unknown>;
     headers?: Record<string, string>;
     query?: Record<string, string>;
     cookie?: Record<string, string>;
-  }
+    path?: Record<string, string>;
+  },
+  phase: OperationEvidence["phase"]
 ) => {
+  let path = operation.path;
+  if (options.path) {
+    for (const [key, value] of Object.entries(options.path)) {
+      path = path.replace(`{${key}}`, value);
+    }
+  }
   const url = new URL(path, ctx.baseUrl);
-  if (options?.query) {
+  if (options.query) {
     for (const [key, value] of Object.entries(options.query)) {
       url.searchParams.set(key, value);
     }
   }
 
-  const headers = options?.headers ?? {};
-  const response = await requestJson(url.toString(), {
-    method: method.toUpperCase(),
-    headers,
-    body: options?.body ? JSON.stringify(options.body) : undefined
-  });
-
-  const operation = matchOperation(operations, method, url.pathname);
-  if (!operation) {
-    throw new Error(`No operation matched for ${method.toUpperCase()} ${url.pathname}`);
+  const headers = { ...(options.headers ?? {}) };
+  const method = operation.method.toUpperCase();
+  const canSendBody = method !== "GET" && method !== "HEAD";
+  if (canSendBody && options.body) {
+    const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
+    if (!hasContentType) {
+      headers["Content-Type"] = "application/json";
+    }
   }
+  const response = await requestJson(url.toString(), {
+    method,
+    headers,
+    body: canSendBody && options.body ? JSON.stringify(options.body) : undefined
+  });
 
   const requestEvidence: RequestEvidence = {
-    body: options?.body ?? {},
-    path: extractPathParams(operation.path, url.pathname),
-    query: options?.query ?? {},
+    body: options.body ?? {},
+    path: options.path ?? {},
+    query: options.query ?? {},
     header: normalizeHeaders(headers),
-    cookie: options?.cookie ?? {}
+    cookie: options.cookie ?? {}
   };
 
-  evidence.set(operation.id, {
+  const entry = evidence.get(operation.id) ?? {};
+  const record: OperationEvidence = {
     request: requestEvidence,
-    response: buildResponseMap(operation, response.data)
-  });
+    response: response.status >= 200 && response.status < 300 ? buildResponseMap(operation, response.data) : {},
+    status: response.status,
+    ok: response.status >= 200 && response.status < 300,
+    phase
+  };
+  if (phase === "example") {
+    entry.example = record;
+  } else {
+    entry.filled = record;
+  }
+  evidence.set(operation.id, entry);
 
   return response;
 };
 
-const registerAndLogin = async (ctx: RuntimeContext) => {
-  const email = `user_${Date.now()}@example.com`;
-  await callAndRecord(ctx, "post", "/auth/register", {
-    headers: { "Content-Type": "application/json" },
-    body: { email, password: "Secret123!" }
-  });
-
-  const login = await callAndRecord(ctx, "post", "/auth/login", {
-    headers: { "Content-Type": "application/json" },
-    body: { email, password: "Secret123!" }
-  });
-
-  if (login.status !== 200 || !login.data || typeof login.data !== "object") {
-    throw new Error("Login failed during refinement");
+const buildOutputPool = (records: Map<string, EvidenceBucket>, ops: OperationShape[]) => {
+  const pool: OutputPool = { values: {}, entities: {} };
+  const opMap = new Map(ops.map((op) => [op.id, op]));
+  for (const [opId, entry] of records.entries()) {
+    const chosen = entry.filled?.ok ? entry.filled : entry.example?.ok ? entry.example : undefined;
+    if (!chosen) {
+      continue;
+    }
+    const operation = opMap.get(opId);
+    for (const [key, value] of Object.entries(chosen.response)) {
+      if (!pool.values[key]) {
+        pool.values[key] = [];
+      }
+      pool.values[key].push(value);
+      if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && value[0] !== null) {
+        const first = value[0] as Record<string, unknown>;
+        for (const [nestedKey, nestedValue] of Object.entries(first)) {
+          if (!pool.values[nestedKey]) {
+            pool.values[nestedKey] = [];
+          }
+          pool.values[nestedKey].push(nestedValue);
+        }
+      }
+      if (operation) {
+        const field = operation.responseFields.find((responseField) => responseField.name === key);
+        const entity = field?.entity?.toLowerCase();
+        if (entity) {
+          if (!pool.entities[entity]) {
+            pool.entities[entity] = {};
+          }
+          if (!pool.entities[entity][key]) {
+            pool.entities[entity][key] = [];
+          }
+          pool.entities[entity][key].push(value);
+        }
+      }
+    }
   }
-  ctx.token = (login.data as { token?: string }).token;
+  return pool;
 };
 
-const createCart = async (ctx: RuntimeContext) => {
-  const cart = await callAndRecord(ctx, "post", "/carts", {
-    headers: { Authorization: `Bearer ${ctx.token}` }
-  });
-  if (cart.status !== 201 || !cart.data || typeof cart.data !== "object") {
-    throw new Error("Cart creation failed during refinement");
-  }
-  ctx.cartId = (cart.data as { id?: string }).id;
+const countPoolEntries = (pool: OutputPool) => {
+  return Object.values(pool.values).reduce((sum, values) => sum + values.length, 0);
 };
 
-const addItem = async (ctx: RuntimeContext) => {
-  const products = await callAndRecord(ctx, "get", "/products");
-  if (products.status !== 200 || !Array.isArray(products.data)) {
-    throw new Error("Unable to fetch products during refinement");
-  }
-  const first = products.data[0] as { id?: string };
-  const add = await callAndRecord(ctx, "post", `/carts/${ctx.cartId}/items`, {
-    headers: {
-      Authorization: `Bearer ${ctx.token}`,
-      "Content-Type": "application/json"
-    },
-    body: { productId: first.id, quantity: 1 }
-  });
-  if (add.status !== 200) {
-    throw new Error("Add item failed during refinement");
-  }
+const inferEntityFromFieldName = (name: string) => {
+  const match = name.match(/([a-z0-9]+)id$/i);
+  return match ? match[1].toLowerCase() : undefined;
 };
 
-const createOrder = async (ctx: RuntimeContext) => {
-  const order = await callAndRecord(ctx, "post", "/orders", {
-    headers: {
-      Authorization: `Bearer ${ctx.token}`,
-      "Content-Type": "application/json"
-    },
-    body: { cartId: ctx.cartId }
-  });
-  if (order.status !== 201 || !order.data || typeof order.data !== "object") {
-    throw new Error("Order creation failed during refinement");
+const fillInputsFromPool = (
+  operation: OperationShape,
+  pool: OutputPool,
+  example: ReturnType<typeof extractExampleInputs>
+) => {
+  const body = { ...(example.body ?? {}) };
+  const path = { ...example.params.path };
+  const query = { ...example.params.query };
+  const header = { ...example.params.header };
+  const cookie = { ...example.params.cookie };
+
+  const fillValue = (name: string) => {
+    const entity = inferEntityFromFieldName(name);
+    if (entity) {
+      const entityValues = pool.entities[entity]?.id;
+      if (entityValues && entityValues.length > 0) {
+        return entityValues[0];
+      }
+    }
+    const direct = pool.values[name]?.[0];
+    if (direct !== undefined) {
+      return direct;
+    }
+    const normalized = normalizeField(name);
+    for (const [key, values] of Object.entries(pool.values)) {
+      if (normalizeField(key) === normalized && values.length > 0) {
+        return values[0];
+      }
+    }
+    if (normalized.endsWith("id") && pool.values.id?.length) {
+      return pool.values.id[0];
+    }
+    for (const [key, values] of Object.entries(pool.values)) {
+      if (normalizeField(key).endsWith("id") && values.length > 0) {
+        return values[0];
+      }
+    }
+    return undefined;
+  };
+
+  for (const field of operation.requestFields) {
+    const candidate = fillValue(field.name);
+    if (candidate !== undefined) {
+      const segments = field.name.split(".");
+      let cursor: Record<string, unknown> = body;
+      for (let i = 0; i < segments.length - 1; i += 1) {
+        const segment = segments[i];
+        if (!cursor[segment] || typeof cursor[segment] !== "object") {
+          cursor[segment] = {};
+        }
+        cursor = cursor[segment] as Record<string, unknown>;
+      }
+      cursor[segments[segments.length - 1]] = candidate;
+    }
   }
-  ctx.orderId = (order.data as { id?: string }).id;
+
+  for (const param of operation.pathParams) {
+    const candidate = fillValue(param.name);
+    if (candidate !== undefined) {
+      path[param.name] = normalizeValue(candidate) ?? "";
+    }
+  }
+
+  for (const param of operation.otherParams) {
+    const target = param.location === "query" ? query : param.location === "header" ? header : cookie;
+    const candidate = fillValue(param.name);
+    if (candidate !== undefined) {
+      target[param.name] = normalizeValue(candidate) ?? "";
+    }
+  }
+
+  if (operation.requiresAuth) {
+    const token = fillValue("token");
+    if (token) {
+      const tokenValue = normalizeValue(token) ?? "";
+      header.Authorization = tokenValue.startsWith("Bearer ") ? tokenValue : `Bearer ${tokenValue}`;
+    }
+  }
+
+  return { body, path, query, header, cookie };
 };
 
-const fetchOrder = async (ctx: RuntimeContext) => {
-  const order = await callAndRecord(ctx, "get", `/orders/${ctx.orderId}`, {
-    headers: { Authorization: `Bearer ${ctx.token}` }
-  });
-  if (order.status !== 200) {
-    throw new Error("Order retrieval failed during refinement");
+const writeIterationReport = (
+  outputPath: string,
+  iterations: IterationSummary[],
+  totalDependencies: number
+) => {
+  const lines: string[] = [];
+  lines.push("# StrawBerry-REST Refinement Iterations");
+  lines.push("");
+  lines.push(`Total dependencies: ${totalDependencies}`);
+  lines.push("");
+  for (const iteration of iterations) {
+    lines.push(`## Iteration ${iteration.iteration} (${iteration.phase})`);
+    lines.push("");
+    lines.push(`- operations ok: ${iteration.okOperations}/${iteration.totalOperations}`);
+    lines.push(`- new outputs: ${iteration.newOutputs}`);
+    lines.push(`- newly verified dependencies: ${iteration.newlyVerified.length}`);
+    lines.push("");
+    if (iteration.newlyVerified.length === 0) {
+      lines.push("No new dependencies verified in this iteration.");
+    } else {
+      for (const dep of iteration.newlyVerified) {
+        lines.push(
+          `- ${dep.fromOperation} -> ${dep.toOperation} [${dep.kind}] ${dep.field}:${dep.type} (${dep.reason})`
+        );
+      }
+    }
+    lines.push("");
   }
+  fs.writeFileSync(outputPath, lines.join("\n"));
 };
 
 const run = async () => {
   console.log(`Refining ${dependencies.length} dependencies against ${argv.base}`);
   const ctx: RuntimeContext = { baseUrl: argv.base };
-  await registerAndLogin(ctx);
-  await createCart(ctx);
-  await addItem(ctx);
-  await createOrder(ctx);
-  await fetchOrder(ctx);
+
+  const executionResults = new Map<string, { status: number; ok: boolean }>();
+  const operationDefinitions = spec.paths ?? {};
+  const iterations: IterationSummary[] = [];
+
+  const runIteration = async (phase: "example" | "filled", pool: OutputPool, iteration: number) => {
+    let okCount = 0;
+    const previousPoolSize = countPoolEntries(pool);
+    const previousVerified = new Set(
+      dependencies
+        .map((dependency) => ({
+          id: `${dependency.fromOperation}|${dependency.toOperation}|${dependency.field}|${dependency.kind}`,
+          status: verifyDependency(dependency, evidence.get(dependency.fromOperation), evidence.get(dependency.toOperation))
+        }))
+        .filter((entry) => entry.status === "verified")
+        .map((entry) => entry.id)
+    );
+
+    for (const operation of operations) {
+      const definition = (operationDefinitions[operation.path] as PathItemObject | undefined)?.[
+        operation.method
+      ] as OperationObject | undefined;
+      if (!definition) {
+        executionResults.set(operation.id, { status: 0, ok: false });
+        console.warn(`Missing OpenAPI definition for ${operation.id}`);
+        continue;
+      }
+
+      const exampleInputs = extractExampleInputs(definition);
+      const filled = phase === "example" ? exampleInputs : fillInputsFromPool(operation, pool, exampleInputs);
+      try {
+        const response = await callAndRecord(
+          ctx,
+          operation,
+          {
+            body: filled.body,
+            headers: "params" in filled ? filled.params.header : filled.header,
+            query: "params" in filled ? filled.params.query : filled.query,
+            cookie: "params" in filled ? filled.params.cookie : filled.cookie,
+            path: "params" in filled ? filled.params.path : filled.path
+          },
+          phase
+        );
+        if (response.status >= 200 && response.status < 300) {
+          okCount += 1;
+        }
+        executionResults.set(operation.id, { status: response.status, ok: response.status >= 200 && response.status < 300 });
+      } catch (error) {
+        console.error(`Execution failed for ${operation.id} (${phase}):`, error instanceof Error ? error.message : error);
+        executionResults.set(operation.id, { status: 0, ok: false });
+      }
+    }
+
+    const newPool = buildOutputPool(evidence, operations);
+    const newPoolSize = countPoolEntries(newPool);
+    const newlyVerified = dependencies.filter((dependency) => {
+      const key = `${dependency.fromOperation}|${dependency.toOperation}|${dependency.field}|${dependency.kind}`;
+      const status = verifyDependency(dependency, evidence.get(dependency.fromOperation), evidence.get(dependency.toOperation));
+      return status === "verified" && !previousVerified.has(key);
+    });
+
+    iterations.push({
+      iteration,
+      phase,
+      okOperations: okCount,
+      totalOperations: operations.length,
+      newOutputs: Math.max(0, newPoolSize - previousPoolSize),
+      newlyVerified
+    });
+
+    return { okCount, newlyVerified, pool: newPool };
+  };
+
+  let currentPool = buildOutputPool(evidence, operations);
+  let iteration = 1;
+  const first = await runIteration("example", currentPool, iteration);
+  currentPool = first.pool;
+  iteration += 1;
+
+  for (; iteration <= argv["max-iterations"]; iteration += 1) {
+    const result = await runIteration("filled", currentPool, iteration);
+    const noSuccess = result.okCount === 0;
+    const noNewVerified = result.newlyVerified.length === 0;
+    currentPool = result.pool;
+    if (noSuccess && noNewVerified) {
+      break;
+    }
+  }
 
   const refined: Dependency[] = dependencies.map((dependency) => ({
     ...dependency,
@@ -368,9 +606,19 @@ const run = async () => {
     return { dependency, before, after };
   });
 
-  writeJsonReport(outputDir, { operations, dependencies: refined, refinementChanges: changes });
+  writeJsonReport(outputDir, {
+    operations,
+    dependencies: refined,
+    refinementChanges: changes,
+    operationResults: Array.from(executionResults.entries()).map(([id, result]) => ({
+      id,
+      status: result.status,
+      ok: result.ok
+    }))
+  });
   writeMarkdownSummary(outputDir, operations, refined);
   writeRefinementDiff(outputDir, refined, changes);
+  writeIterationReport(path.join(outputDir, "refinement-iterations.md"), iterations, refined.length);
   writeAnalysisReport(outputDir, {
     specPath: argv.spec,
     operations,

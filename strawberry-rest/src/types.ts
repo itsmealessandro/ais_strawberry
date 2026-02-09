@@ -19,11 +19,15 @@ export type SchemaObject = {
     propertyName: string;
     mapping?: Record<string, string>;
   };
+  example?: unknown;
+  examples?: Record<string, { value?: unknown } | unknown>;
 };
 
 // Represents a media type schema wrapper in OpenAPI.
 export type MediaTypeObject = {
   schema?: SchemaObject;
+  example?: unknown;
+  examples?: Record<string, { value?: unknown } | unknown>;
 };
 
 // Request body definition in OpenAPI operations.
@@ -54,6 +58,8 @@ export type ParameterObject = {
   in: ParameterLocation;
   required?: boolean;
   schema?: SchemaObject;
+  example?: unknown;
+  examples?: Record<string, { value?: unknown } | unknown>;
 };
 
 // Path item mapping method -> operation.
