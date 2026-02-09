@@ -6,6 +6,9 @@ export type ValidationStats = {
   operationsWith2xx: number;
   operationsWithResponseSchema: number;
   operationsWithRequestSchema: number;
+  operationsWithRequestExamples: number;
+  totalParams: number;
+  paramsWithExamples: number;
   paramsMissingSchema: number;
   authOperations: number;
 };
@@ -50,6 +53,50 @@ const hasRequestSchema = (operation: OperationObject) => {
   return Boolean(schema);
 };
 
+const pickExample = (value?: unknown, examples?: Record<string, { value?: unknown } | unknown>) => {
+  if (value !== undefined) {
+    return value;
+  }
+  if (!examples) {
+    return undefined;
+  }
+  const first = Object.values(examples)[0];
+  if (first && typeof first === "object" && "value" in first) {
+    return (first as { value?: unknown }).value;
+  }
+  return first as unknown;
+};
+
+const hasRequestExamples = (operation: OperationObject) => {
+  const body = operation.requestBody;
+  if (!body?.content) {
+    return false;
+  }
+  const mediaType = body.content["application/json"] ?? Object.values(body.content)[0];
+  const example = pickExample(mediaType?.example, mediaType?.examples);
+  if (example !== undefined) {
+    return true;
+  }
+  const schemaExample = pickExample(mediaType?.schema?.example, mediaType?.schema?.examples);
+  return schemaExample !== undefined;
+};
+
+const hasParamExample = (param: ParameterObject) => {
+  if (param.example !== undefined) {
+    return true;
+  }
+  if (param.examples && Object.keys(param.examples).length > 0) {
+    return true;
+  }
+  if (param.schema?.example !== undefined) {
+    return true;
+  }
+  if (param.schema?.examples && Object.keys(param.schema.examples).length > 0) {
+    return true;
+  }
+  return false;
+};
+
 const countMissingParamSchemas = (parameters?: ParameterObject[]) => {
   if (!parameters) {
     return 0;
@@ -65,6 +112,9 @@ export const validateOpenApiSpec = (spec: OpenApiSpec): ValidationResult => {
     operationsWith2xx: 0,
     operationsWithResponseSchema: 0,
     operationsWithRequestSchema: 0,
+    operationsWithRequestExamples: 0,
+    totalParams: 0,
+    paramsWithExamples: 0,
     paramsMissingSchema: 0,
     authOperations: 0
   };
@@ -109,11 +159,28 @@ export const validateOpenApiSpec = (spec: OpenApiSpec): ValidationResult => {
 
       if (hasRequestSchema(op)) {
         stats.operationsWithRequestSchema += 1;
-      } else if (op.requestBody?.required) {
-        warnings.push(`Operation ${opId} has a required request body without a schema.`);
+      } else if (op.requestBody) {
+        errors.push(`Operation ${opId} has a request body without a schema.`);
       }
 
-      stats.paramsMissingSchema += countMissingParamSchemas(op.parameters);
+      if (op.requestBody) {
+        if (hasRequestExamples(op)) {
+          stats.operationsWithRequestExamples += 1;
+        } else {
+          errors.push(`Operation ${opId} has a request body without an example.`);
+        }
+      }
+
+      const params = op.parameters ?? [];
+      stats.totalParams += params.length;
+      stats.paramsMissingSchema += countMissingParamSchemas(params);
+      for (const param of params) {
+        if (hasParamExample(param)) {
+          stats.paramsWithExamples += 1;
+        } else {
+          errors.push(`Operation ${opId} parameter '${param.name}' has no example.`);
+        }
+      }
 
       if (op.security && op.security.length > 0) {
         stats.authOperations += 1;

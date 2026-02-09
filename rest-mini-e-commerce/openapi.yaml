@@ -119,6 +119,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "cart_abc"
       requestBody:
         required: true
         content:
@@ -202,6 +203,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "ord_123"
       responses:
         "200":
           description: Order details
