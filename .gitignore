@@ -2,3 +2,14 @@ resources/
 **/mise.toml
 AGENTS.md
 **/.tmp-rest-server.pid
+
+
+**/target/
+**/*.class
+**/*.jar
+**/*.war
+**/*.ear
+**/*.log
+**/.classpath
+**/.project
+**/.settings
