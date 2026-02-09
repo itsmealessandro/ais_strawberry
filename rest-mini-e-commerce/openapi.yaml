@@ -94,6 +94,13 @@ paths:
       summary: Create a cart
       security:
         - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          example: "Bearer <TOKEN>"
       responses:
         "201":
           description: Cart created
@@ -114,6 +121,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          example: "Bearer <TOKEN>"
         - name: cartId
           in: path
           required: true
@@ -156,6 +169,13 @@ paths:
       summary: Create an order from a cart
       security:
         - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          example: "Bearer <TOKEN>"
       requestBody:
         required: true
         content:
@@ -198,6 +218,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          example: "Bearer <TOKEN>"
         - name: orderId
           in: path
           required: true
