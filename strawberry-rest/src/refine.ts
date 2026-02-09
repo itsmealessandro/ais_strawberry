@@ -1,4 +1,5 @@
 // Runtime refinement for inferred dependencies using a sample REST flow.
+import fs from "fs";
 import path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -32,6 +33,20 @@ type EvidenceBucket = {
   filled?: OperationEvidence;
 };
 
+type IterationSummary = {
+  iteration: number;
+  phase: "example" | "filled";
+  okOperations: number;
+  totalOperations: number;
+  newOutputs: number;
+  newlyVerified: Dependency[];
+};
+
+type OutputPool = {
+  values: Record<string, unknown[]>;
+  entities: Record<string, Record<string, unknown[]>>;
+};
+
 type RuntimeContext = {
   baseUrl: string;
 };
@@ -51,6 +66,11 @@ const argv = yargs(hideBin(process.argv))
     type: "string",
     default: "output",
     describe: "Output directory for reports"
+  })
+  .option("max-iterations", {
+    type: "number",
+    default: 5,
+    describe: "Maximum refinement iterations"
   })
   .parseSync();
 
@@ -316,26 +336,59 @@ const callAndRecord = async (
   return response;
 };
 
-const buildOutputPool = (records: Map<string, EvidenceBucket>) => {
-  const pool: Record<string, unknown[]> = {};
-  for (const entry of records.values()) {
+const buildOutputPool = (records: Map<string, EvidenceBucket>, ops: OperationShape[]) => {
+  const pool: OutputPool = { values: {}, entities: {} };
+  const opMap = new Map(ops.map((op) => [op.id, op]));
+  for (const [opId, entry] of records.entries()) {
     const chosen = entry.filled?.ok ? entry.filled : entry.example?.ok ? entry.example : undefined;
     if (!chosen) {
       continue;
     }
+    const operation = opMap.get(opId);
     for (const [key, value] of Object.entries(chosen.response)) {
-      if (!pool[key]) {
-        pool[key] = [];
+      if (!pool.values[key]) {
+        pool.values[key] = [];
       }
-      pool[key].push(value);
+      pool.values[key].push(value);
+      if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object" && value[0] !== null) {
+        const first = value[0] as Record<string, unknown>;
+        for (const [nestedKey, nestedValue] of Object.entries(first)) {
+          if (!pool.values[nestedKey]) {
+            pool.values[nestedKey] = [];
+          }
+          pool.values[nestedKey].push(nestedValue);
+        }
+      }
+      if (operation) {
+        const field = operation.responseFields.find((responseField) => responseField.name === key);
+        const entity = field?.entity?.toLowerCase();
+        if (entity) {
+          if (!pool.entities[entity]) {
+            pool.entities[entity] = {};
+          }
+          if (!pool.entities[entity][key]) {
+            pool.entities[entity][key] = [];
+          }
+          pool.entities[entity][key].push(value);
+        }
+      }
     }
   }
   return pool;
 };
 
+const countPoolEntries = (pool: OutputPool) => {
+  return Object.values(pool.values).reduce((sum, values) => sum + values.length, 0);
+};
+
+const inferEntityFromFieldName = (name: string) => {
+  const match = name.match(/([a-z0-9]+)id$/i);
+  return match ? match[1].toLowerCase() : undefined;
+};
+
 const fillInputsFromPool = (
   operation: OperationShape,
-  pool: Record<string, unknown[]>,
+  pool: OutputPool,
   example: ReturnType<typeof extractExampleInputs>
 ) => {
   const body = { ...(example.body ?? {}) };
@@ -345,13 +398,28 @@ const fillInputsFromPool = (
   const cookie = { ...example.params.cookie };
 
   const fillValue = (name: string) => {
-    const direct = pool[name]?.[0];
+    const entity = inferEntityFromFieldName(name);
+    if (entity) {
+      const entityValues = pool.entities[entity]?.id;
+      if (entityValues && entityValues.length > 0) {
+        return entityValues[0];
+      }
+    }
+    const direct = pool.values[name]?.[0];
     if (direct !== undefined) {
       return direct;
     }
     const normalized = normalizeField(name);
-    for (const [key, values] of Object.entries(pool)) {
+    for (const [key, values] of Object.entries(pool.values)) {
       if (normalizeField(key) === normalized && values.length > 0) {
+        return values[0];
+      }
+    }
+    if (normalized.endsWith("id") && pool.values.id?.length) {
+      return pool.values.id[0];
+    }
+    for (const [key, values] of Object.entries(pool.values)) {
+      if (normalizeField(key).endsWith("id") && values.length > 0) {
         return values[0];
       }
     }
@@ -391,13 +459,44 @@ const fillInputsFromPool = (
 
   if (operation.requiresAuth) {
     const token = fillValue("token");
-    const needsToken = !header.Authorization || header.Authorization.includes("<TOKEN>");
-    if (token && needsToken) {
-      header.Authorization = `Bearer ${normalizeValue(token)}`;
+    if (token) {
+      const tokenValue = normalizeValue(token) ?? "";
+      header.Authorization = tokenValue.startsWith("Bearer ") ? tokenValue : `Bearer ${tokenValue}`;
     }
   }
 
   return { body, path, query, header, cookie };
+};
+
+const writeIterationReport = (
+  outputPath: string,
+  iterations: IterationSummary[],
+  totalDependencies: number
+) => {
+  const lines: string[] = [];
+  lines.push("# StrawBerry-REST Refinement Iterations");
+  lines.push("");
+  lines.push(`Total dependencies: ${totalDependencies}`);
+  lines.push("");
+  for (const iteration of iterations) {
+    lines.push(`## Iteration ${iteration.iteration} (${iteration.phase})`);
+    lines.push("");
+    lines.push(`- operations ok: ${iteration.okOperations}/${iteration.totalOperations}`);
+    lines.push(`- new outputs: ${iteration.newOutputs}`);
+    lines.push(`- newly verified dependencies: ${iteration.newlyVerified.length}`);
+    lines.push("");
+    if (iteration.newlyVerified.length === 0) {
+      lines.push("No new dependencies verified in this iteration.");
+    } else {
+      for (const dep of iteration.newlyVerified) {
+        lines.push(
+          `- ${dep.fromOperation} -> ${dep.toOperation} [${dep.kind}] ${dep.field}:${dep.type} (${dep.reason})`
+        );
+      }
+    }
+    lines.push("");
+  }
+  fs.writeFileSync(outputPath, lines.join("\n"));
 };
 
 const run = async () => {
@@ -406,98 +505,89 @@ const run = async () => {
 
   const executionResults = new Map<string, { status: number; ok: boolean }>();
   const operationDefinitions = spec.paths ?? {};
+  const iterations: IterationSummary[] = [];
 
-  const nonAuthOperations = operations.filter((operation) => !operation.requiresAuth);
-  const authOperations = operations.filter((operation) => operation.requiresAuth);
+  const runIteration = async (phase: "example" | "filled", pool: OutputPool, iteration: number) => {
+    let okCount = 0;
+    const previousPoolSize = countPoolEntries(pool);
+    const previousVerified = new Set(
+      dependencies
+        .map((dependency) => ({
+          id: `${dependency.fromOperation}|${dependency.toOperation}|${dependency.field}|${dependency.kind}`,
+          status: verifyDependency(dependency, evidence.get(dependency.fromOperation), evidence.get(dependency.toOperation))
+        }))
+        .filter((entry) => entry.status === "verified")
+        .map((entry) => entry.id)
+    );
 
-  for (const operation of nonAuthOperations) {
-    const definition = (operationDefinitions[operation.path] as PathItemObject | undefined)?.[
-      operation.method
-    ] as OperationObject | undefined;
-    if (!definition) {
-      executionResults.set(operation.id, { status: 0, ok: false });
-      console.warn(`Missing OpenAPI definition for ${operation.id}`);
-      continue;
+    for (const operation of operations) {
+      const definition = (operationDefinitions[operation.path] as PathItemObject | undefined)?.[
+        operation.method
+      ] as OperationObject | undefined;
+      if (!definition) {
+        executionResults.set(operation.id, { status: 0, ok: false });
+        console.warn(`Missing OpenAPI definition for ${operation.id}`);
+        continue;
+      }
+
+      const exampleInputs = extractExampleInputs(definition);
+      const filled = phase === "example" ? exampleInputs : fillInputsFromPool(operation, pool, exampleInputs);
+      try {
+        const response = await callAndRecord(
+          ctx,
+          operation,
+          {
+            body: filled.body,
+            headers: "params" in filled ? filled.params.header : filled.header,
+            query: "params" in filled ? filled.params.query : filled.query,
+            cookie: "params" in filled ? filled.params.cookie : filled.cookie,
+            path: "params" in filled ? filled.params.path : filled.path
+          },
+          phase
+        );
+        if (response.status >= 200 && response.status < 300) {
+          okCount += 1;
+        }
+        executionResults.set(operation.id, { status: response.status, ok: response.status >= 200 && response.status < 300 });
+      } catch (error) {
+        console.error(`Execution failed for ${operation.id} (${phase}):`, error instanceof Error ? error.message : error);
+        executionResults.set(operation.id, { status: 0, ok: false });
+      }
     }
-    const exampleInputs = extractExampleInputs(definition);
-    const headers = { ...exampleInputs.params.header };
-    try {
-      const response = await callAndRecord(
-        ctx,
-        operation,
-        {
-          body: exampleInputs.body,
-          headers,
-          query: exampleInputs.params.query,
-          cookie: exampleInputs.params.cookie,
-          path: exampleInputs.params.path
-        },
-        "example"
-      );
-      executionResults.set(operation.id, { status: response.status, ok: response.status >= 200 && response.status < 300 });
-    } catch (error) {
-      console.error(`Execution failed for ${operation.id}:`, error instanceof Error ? error.message : error);
-      executionResults.set(operation.id, { status: 0, ok: false });
-    }
-  }
 
-  let pool = buildOutputPool(evidence);
+    const newPool = buildOutputPool(evidence, operations);
+    const newPoolSize = countPoolEntries(newPool);
+    const newlyVerified = dependencies.filter((dependency) => {
+      const key = `${dependency.fromOperation}|${dependency.toOperation}|${dependency.field}|${dependency.kind}`;
+      const status = verifyDependency(dependency, evidence.get(dependency.fromOperation), evidence.get(dependency.toOperation));
+      return status === "verified" && !previousVerified.has(key);
+    });
 
-  for (const operation of authOperations) {
-    const definition = (operationDefinitions[operation.path] as PathItemObject | undefined)?.[
-      operation.method
-    ] as OperationObject | undefined;
-    if (!definition) {
-      continue;
-    }
-    const exampleInputs = extractExampleInputs(definition);
-    const filled = fillInputsFromPool(operation, pool, exampleInputs);
-    try {
-      await callAndRecord(
-        ctx,
-        operation,
-        {
-          body: filled.body,
-          headers: filled.header,
-          query: filled.query,
-          cookie: filled.cookie,
-          path: filled.path
-        },
-        "example"
-      );
-    } catch (error) {
-      console.error(`Execution failed for ${operation.id} (filled):`, error instanceof Error ? error.message : error);
-      executionResults.set(operation.id, { status: 0, ok: false });
-    }
-  }
+    iterations.push({
+      iteration,
+      phase,
+      okOperations: okCount,
+      totalOperations: operations.length,
+      newOutputs: Math.max(0, newPoolSize - previousPoolSize),
+      newlyVerified
+    });
 
-  pool = buildOutputPool(evidence);
+    return { okCount, newlyVerified, pool: newPool };
+  };
 
-  for (const operation of operations) {
-    const definition = (operationDefinitions[operation.path] as PathItemObject | undefined)?.[
-      operation.method
-    ] as OperationObject | undefined;
-    if (!definition) {
-      continue;
-    }
-    const exampleInputs = extractExampleInputs(definition);
-    const filled = fillInputsFromPool(operation, pool, exampleInputs);
-    try {
-      await callAndRecord(
-        ctx,
-        operation,
-        {
-          body: filled.body,
-          headers: filled.header,
-          query: filled.query,
-          cookie: filled.cookie,
-          path: filled.path
-        },
-        "filled"
-      );
-    } catch (error) {
-      console.error(`Execution failed for ${operation.id} (filled):`, error instanceof Error ? error.message : error);
-      executionResults.set(operation.id, { status: 0, ok: false });
+  let currentPool = buildOutputPool(evidence, operations);
+  let iteration = 1;
+  const first = await runIteration("example", currentPool, iteration);
+  currentPool = first.pool;
+  iteration += 1;
+
+  for (; iteration <= argv["max-iterations"]; iteration += 1) {
+    const result = await runIteration("filled", currentPool, iteration);
+    const noSuccess = result.okCount === 0;
+    const noNewVerified = result.newlyVerified.length === 0;
+    currentPool = result.pool;
+    if (noSuccess && noNewVerified) {
+      break;
     }
   }
 
@@ -528,6 +618,7 @@ const run = async () => {
   });
   writeMarkdownSummary(outputDir, operations, refined);
   writeRefinementDiff(outputDir, refined, changes);
+  writeIterationReport(path.join(outputDir, "refinement-iterations.md"), iterations, refined.length);
   writeAnalysisReport(outputDir, {
     specPath: argv.spec,
     operations,
